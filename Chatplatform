@@ -1,0 +1,1075 @@
+.vagrant/
+data/*
+err.log
+node_modules/
+npm*.log
+out.log
+*sublime*
+ "node": true,
+    "esnext": true,
+    "bitwise": true,
+    "camelcase": true,
+    "curly": true,
+    "eqeqeq": true,
+    "immed": true,
+    "indent": 2,
+    "latedef": "nofunc",
+    "newcap": false,
+    "noarg": true,
+    "quotmark": "single",
+    "regexp": true,
+    "undef": true,
+    "unused": false,
+    "strict": false,
+    "trailing": true,
+    "smarttabs": true,
+    "white": false,
+    "globals": {
+        "it": true,
+        "describe": true,
+        "before": true,
+        "beforeEach": true,
+        "after": true,
+        "afterEach": true
+    }
+}
+# Chat App
+
+A little application allowing users to log in and use a chat room.  Built following a tutorial at
+[Feathers](http://feathersjs.com/).
+
+## Setup
+
+* Clone the repo
+* `git clone git@github.com:mince27/chat-app.git` OR
+* `git clone https://github.com/mince27/chat-app.git`
+* Install [Vagrant](https://www.vagrantup.com/) and a provider for it (e.g. [VirtualBox](https://www.virtualbox.org/))
+* From the root of the repo run: `vagrant up`
+   * This will be a little slow on the first time as it will have to import the base box
+   * This file uses NFS which will require elevated privileges.  Feel free to comment out
+* `vagrant ssh` to connect to the guest
+* `cd /vagrant`
+* `npm install`
+* `npm run debug`
+* The server should be accessible at [http://localhost:3030/](http://localhost:3030/)
+
+If you don't want to use Vagrant just make sure to have Node 6 or later installed.
+
+## Usage
+
+* `npm run jshint` - Runs jshint against the code base
+* `npm run debug` - Runs the process through node, logs are written to the terminal.
+* `npm run start` - Runs process through [Forever](https://github.com/foreverjs/forever)
+  * Logs will be written to <REPO>/out.log and <REPO>/error.log
+* `npm run stop` - Stops any node process being run through Forever
+* `npm run clearDatabase` - Deletes the users and any stored chat messages.
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure('2') do |config|
+  config.vm.box = 'centos/7'
+  config.vm.synced_folder '.', '/vagrant', type: 'nfs'
+  config.vm.network :private_network, ip: '192.168.10.10'
+  [{ 'guest' => 3030, 'host' => 3030 }].each do |fp|
+    config.vm.network :forwarded_port, guest: fp['guest'],
+                                       host: fp['host'],
+                                       auto_correct: true
+  end
+  config.vm.provider 'virtualbox' do |vb|
+    # Do not display the VirtualBox GUI when booting the machine
+    vb.gui = false
+    vb.memory = '2048'
+  end
+
+  config.vm.provision 'shell', privileged: true, inline: <<-SHELL
+    yum update -y
+  SHELL
+
+  config.vm.provision 'shell', privileged: false, inline: <<-SHELL
+    readonly NVM_INSTALL_SCRIPT='https://raw.githubusercontent.com/creationix/nvm/v0.32.1/install.sh'
+    readonly NODE_VERSION='6.0.0'
+    if [[ ! $(which nvm) ]]; then
+      curl -o- "$NVM_INSTALL_SCRIPT" | bash
+      export NVM_DIR="/home/vagrant/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+    fi
+    if [[ ! $(which node) ]]; then
+      nvm install "$NODE_VERSION"
+      nvm use "$NODE_VERSION"
+    fi
+  SHELL
+end
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const feathersConf = require('feathers-configuration');
+
+const buildConfig = feathersConf(path.join(__dirname, '..'));
+const config = buildConfig();
+
+console.info('Removing database files from %s', config.nedb);
+fs.readdir(config.nedb, (readDirErr, files) => {
+  if (readDirErr) {
+    console.error(readDirErr);
+    throw new Error(`Error occurred reading ${config.nedb}`);
+  }
+
+  let count = 1;
+  files.forEach((file) => {
+    console.info('- Removing %d of %d: %s', count, files.length, file);
+    fs.unlinkSync(`${config.nedb}/${file}`);
+    count += 1;
+  });
+});
+{
+  "host": "localhost",
+  "port": 3030,
+  "nedb": "../data/",
+  "public": "../public/",
+  "auth": {
+    "token": {
+      "secret": "+GJwhl9/93z1LNvxJ7xyIkEFFeqeErUYoub/Eeh4FIqLqr3j5nZoSt8UJkqogOP8iHUbJxo74R4L0OpRkZSFgw=="
+    },
+    "local": {},
+    "successRedirect": "/chat",
+    "failureRedirect": "/signup.html"
+  }
+}
+{
+  "name": "chat-app",
+  "description": "A real-time chat application",
+  "author": "Stelligent",
+  "version": "1.0.0",
+  "main": "src/",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mince27/chat-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mince27/chat-app.git"
+  },
+  "scripts": {
+    "jshint": "jshint src/. test/. --config",
+    "build": "",
+    "debug": "node src/index.js",
+    "start": "forever start -a -o out.log -e err.log --minUptime 1000 --spinSleepTime 1000 src/index.js",
+    "stop": "forever stopall",
+    "clearDatabase": "./bin/clearDatabase"
+  },
+  "dependencies": {
+    "body-parser": "^1.15.0",
+    "compression": "^1.6.1",
+    "feathers": "^2.0.0",
+    "feathers-authentication": "^0.7.0",
+    "feathers-configuration": "^0.4.1",
+    "feathers-errors": "^2.0.1",
+    "feathers-hooks": "^1.5.0",
+    "feathers-nedb": "^2.2.2",
+    "feathers-rest": "^1.2.4",
+    "feathers-socketio": "^1.3.3",
+    "forever": "^0.15.3",
+    "nedb": "^1.8.0",
+    "passport": "^0.3.2",
+    "pm2": "^2.1.5",
+    "serve-favicon": "^2.3.0",
+    "winston": "^2.2.0"
+  },
+  "devDependencies": {
+    "jshint": "^2.9.1",
+    "mocha": "^3.1.2",
+    "mustache": "^2.3.0",
+    "request": "^2.69.0"
+  }
+}
+'use strict';
+
+// A placeholder image if the user does not have one
+const PLACEHOLDER = 'https://placeimg.com/60/60/people';
+// An anonymous user if the message does not have that information
+const dummyUser = {
+  avatar: PLACEHOLDER,
+  email: 'Anonymous'
+};
+// The total number of users
+let userCount = 0;
+
+function addUser(user) {
+  // Update the number of users
+  $('.online-count').html(++userCount);
+  // Add the user to the list
+  $('.user-list').append(`<li>
+    <a class="block relative" href="#">
+      <img src="${user.avatar || PLACEHOLDER}" alt="" class="avatar">
+      <span class="absolute username">${user.email}</span>
+    </a>
+  </li>`);
+}
+
+// Renders a new message and finds the user that belongs to the message
+function addMessage(message) {
+  // Find the user belonging to this message or use the anonymous user if not found
+  const sender = typeof message.sentBy === 'object' ? message.sentBy : dummyUser;
+  const chat = $('.chat');
+
+  chat.append(`<div class="message flex flex-row">
+    <img src="${sender.avatar}" alt="${sender.email}" class="avatar">
+    <div class="message-wrapper">
+      <p class="message-header">
+        <span class="username font-600">${sender.email}</span>
+        <span class="sent-date font-300">${moment(message.createdAt).format('MMM Do, hh:mm:ss')}</span>
+      </p>
+      <p class="message-content font-300">${message.text}</p>
+    </div>
+  </div>`);
+
+  chat.scrollTop(chat[0].scrollHeight - chat[0].clientHeight);
+}
+
+// Establish a Socket.io connection
+const socket = io();
+// Initialize our Feathers client application through Socket.io
+// with hooks and authentication.
+const app = feathers()
+  .configure(feathers.socketio(socket))
+  .configure(feathers.hooks())
+  // Use localStorage to store our login token
+  .configure(feathers.authentication({
+    storage: window.localStorage
+  }));
+
+// Get the Feathers services we want to use
+const userService = app.service('users');
+const messageService = app.service('messages');
+
+$('#send-message').on('submit', function(ev) {
+  // This is the message text input field
+  const input = $(this).find('[name="text"]');
+
+  // Create a new message and then clear the input field
+  messageService.create({
+    text: input.val()
+  }).then(message => input.val(''));
+
+  ev.preventDefault();
+});
+
+$('.logout').on('click', function() {
+  app.logout().then(() => window.location.href = '/index.html');
+});
+
+app.authenticate().then(() => {
+  // Find the latest 10 messages. They will come with the newest first
+  // which is why we have to reverse before adding them
+  messageService.find({
+    query: {
+      $sort: { createdAt: -1 },
+      $limit: 25
+    }
+  }).then(page => page.data.reverse().forEach(addMessage));
+
+  // Listen to created events and add the new message in real-time
+  messageService.on('created', addMessage);
+
+  // Find all users
+  userService.find().then(page => {
+    const users = page.data;
+
+    // Add every user to the list
+    users.forEach(addUser);
+  });
+
+  // We will also see when new users get created in real-time
+  userService.on('created', addUser);
+})
+// On errors we just redirect back to the login page
+.catch(error => window.location.href = '/login.html');
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=0" />
+    <title>Stelligent Chat</title>
+    <link rel="shortcut icon" href="../favicon.ico">
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/chat.css">
+  </head>
+  <body>
+    <div id="app" class="flex flex-column">
+      <header class="title-bar flex flex-row flex-center">
+        <div class="title-wrapper block center-element">
+          <img class="logo" src="/stelligent_logo_bw.png" alt="Stelligent Chat">
+        </div>
+      </header>
+
+      <div class="flex flex-row flex-1 clear">
+        <aside class="sidebar col col-4 flex flex-column flex-space-between">
+          <header class="flex flex-row flex-center">
+            <h4 class="font-300 text-center">
+              <span class="font-600 online-count">0</span> users
+            </h4>
+          </header>
+
+          <ul class="flex flex-column flex-1 list-unstyled user-list"></ul>
+          <footer class="flex flex-row flex-center">
+            <a href="#" class="logout button button-primary">
+              Sign Out
+            </a>
+          </footer>
+        </aside>
+
+        <div class="flex flex-column col col-9">
+          <main class="chat flex flex-column flex-1 clear"></main>
+
+          <form class="flex flex-row flex-space-between" id="send-message">
+            <input type="text" name="text" class="flex flex-1">
+            <button class="button-primary" type="submit">Send</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    <script src="../js/vendor/browser.min.js"></script>
+    <script src="../js/vendor/moment.min.js"></script>
+    <script src="../js/vendor/jquery-2.2.4.min.js"></script>
+    <script src="../js/vendor/core.min.js"></script>
+    <script src="../js/vendor/feathers.js"></script>
+    <script src="../js/vendor/socket.io.min.js"></script>
+    <script type="text/babel" src="app.js"></script>
+  </body>
+</html>
+html, body {
+  font-family: 'Helvetica Neue', 'Helevetica', 'Arial', 'sans-serif';
+  color: #333;
+}
+
+.flex-1 {
+  flex: 1 1 0;
+}
+
+.flex-2 {
+  flex: 2;
+}
+
+.row {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+a {
+  text-decoration: none;
+  color: #f4842b;
+}
+
+a:hover,
+a:focus {
+  text-decoration: none;
+  color: #f2740d;
+}
+
+.button {
+  text-align: center;
+}
+
+.button-primary {
+  padding: 0.6em 1.2em;
+  background: #f4842b;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  transition: background 0.2s;
+}
+
+.button-primary:hover,
+.button-primary:focus {
+  background: #f2740d;
+  color: #ffffff;
+}
+
+/* ======================================= */
+/* Home Page */
+/* ======================================= */
+
+main.home {
+  padding-top: 100px;
+  padding-bottom: 100px;
+}
+
+main.home img.logo {
+  width: 100%;
+  max-width: 400px;
+}
+
+main.home h3.title {
+  color: #969696;
+  font-weight: 100;
+  text-transform: uppercase;
+  margin-bottom: 40px;
+}
+
+/* ======================================= */
+/* Signup and Login */
+/* ======================================= */
+
+main.home,
+main.login,
+main.signup {
+  padding-top: 100px;
+  padding-bottom: 100px;
+}
+
+main.home fieldset,
+main.login fieldset,
+main.signup fieldset {
+  padding: 10px 0;
+}
+
+main.home fieldset input,
+main.login fieldset input,
+main.signup fieldset input{
+  width: 100%;
+  /* padding: 1.4em 0.7em; */
+}
+
+main.home .button-primary,
+main.login .button-primary,
+main.signup .button-primary {
+  padding-top: 1.2em;
+  padding-bottom: 1.2em;
+  margin-top: 40px;
+  width: 100%;
+}
+
+
+/* ======================================= */
+/* Chat App */
+/* ======================================= */
+
+#app {
+  height: 100%;
+}
+
+/* Header */
+header.title-bar {
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+header.title-bar img.logo {
+  width: 100%;
+  max-width: 140px;
+}
+
+header.title-bar span.title {
+  color: #969696;
+  font-weight: 100;
+  text-transform: uppercase;
+  font-size: 1.2em;
+  margin-left: 7px;
+}
+
+/* User List Sidebar */
+
+aside.sidebar {
+  background: #f8f8f8;
+  // height: 100%;
+  max-width: 340px;
+  padding: 15px;
+  border-right: 1px solid #f1f1f1;
+}
+
+aside.sidebar .online-count {
+  color: #f4842b;
+  margin-right: 5px;
+}
+
+aside.sidebar h4 {
+  margin: 0 0 20px 0;
+  color: #C3C3C3;
+}
+
+aside.sidebar .user-list {
+  overflow-y: scroll;
+}
+
+aside.sidebar li {
+  margin: 15px 0;
+}
+
+aside.sidebar li > a {
+  color: #555555;
+}
+
+aside.sidebar li > a:hover > span,
+aside.sidebar li > a:focus > span, {
+  color: #f4842b;
+}
+
+aside.sidebar img.avatar {
+  border-radius: 100%;
+  height: 45px;
+  width: 45px;
+  margin-right: 10px;
+}
+
+aside.sidebar .username {
+  position: absolute;
+  line-height: 45px;
+}
+
+aside.sidebar footer {
+  // min-height: 60px;
+}
+
+/* Main Chat */
+main.chat {
+  padding: 10px;
+  overflow-y: scroll;
+}
+
+main.chat img.avatar {
+  border-radius: 100%;
+  height: 45px;
+  width: 45px;
+  flex: none;
+}
+
+main.chat .message {
+  flex: 0 0 auto;
+}
+
+main.chat .message img.avatar {
+  margin-right: 10px;
+}
+
+main.chat .message p.message-header {
+  margin: 0;
+  font-size: 0.9em;
+}
+
+main.chat .message p.message-header span.sent-date {
+  color: #969696;
+}
+
+/* Send Message Form */
+#app form {
+  min-height: 60px;
+  padding: 10px 20px;
+}
+
+#app form input {
+  height: auto !important;
+}
+
+#app form button {
+  margin-left: 10px;
+}
+
+[v-cloak] {
+  display: none;
+}
+ <html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=0" />
+    <title>Stelligent Chat</title>
+    <link rel="shortcut icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/chat.css">
+  </head>
+
+  <body>
+    <main class="home container">
+      <div class="row">
+        <div class="col-12 col-8-tablet push-2-tablet text-center">
+          <img class="logo center-item"
+            src="/stelligent_logo_bw.png"
+            alt="Stelligent">
+          <h3 class="title">Chat</h3>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-12 push-4-tablet col-4-tablet">
+          <div class="row">
+            <div class="col-12">
+              <form class="form" method="post" action="/auth/local">
+                <fieldset>
+                  <input class="block" type="email" name="email" placeholder="email">
+                </fieldset>
+
+                <fieldset>
+                  <input class="block" type="password" name="password" placeholder="password" AUTOCOMPLETE='OFF'>
+                </fieldset>
+
+                <button type="submit" class="button button-primary block login">
+                  Login
+                </button>
+              </form>
+            </div>
+
+            <div class="col-12">
+              <a href="signup.html">Create Account</a>
+            </div>
+
+          </div>
+
+          <div class="row">
+            <div class="col-12">
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </body>
+</html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=0" />
+    <title>Stelligent Chat</title>
+    <link rel="shortcut icon" href="favicon.ico">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/chat.css">
+  </head>
+
+  <body>
+    <main class="login container">
+      <div class="row">
+        <div class="col-12 col-6-tablet push-3-tablet text-center">
+          <h1 class="font-100">Create an Account</h1>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-12 col-6-tablet push-3-tablet col-4-desktop push-4-desktop">
+          <form class="form" method="post" action="/signup">
+            <fieldset>
+              <input class="block" type="email" name="email" placeholder="email">
+            </fieldset>
+
+            <fieldset>
+              <input class="block" type="password" name="password" placeholder="password" AUTOCOMPLETE='OFF'>
+            </fieldset>
+
+            <button type="submit" class="button button-primary block signup">
+              Signup
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
+use strict';
+
+const path = require('path');
+const serveStatic = require('feathers').static;
+const favicon = require('serve-favicon');
+const compress = require('compression');
+const feathers = require('feathers');
+const configuration = require('feathers-configuration');
+const hooks = require('feathers-hooks');
+const rest = require('feathers-rest');
+const bodyParser = require('body-parser');
+const socketio = require('feathers-socketio');
+
+const middleware = require('./middleware');
+const services = require('./services');
+
+const app = feathers();
+const conf = configuration(path.join(__dirname, '..'));
+
+app.configure(conf);
+app.use(compress())
+  .use(function(req, res, next) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'Deny');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    next();
+  })
+  .use(favicon(path.join(app.get('public'), 'favicon.ico')))
+  .use('/', serveStatic( app.get('public') ))
+  .use(bodyParser.json())
+  .use(bodyParser.urlencoded({ extended: true }))
+  .configure(hooks())
+  .configure(rest())
+  .configure(socketio())
+  .configure(services)
+  .configure(middleware);
+
+module.exports = app;
+'use strict';
+
+// Add any common hooks you want to share across services in here.
+//
+// Below is an example of how a hook is written and exported. Please
+// see http://docs.feathersjs.com/hooks/readme.html for more details
+// on hooks.
+
+exports.myHook = function(options) {
+  return function(hook) {
+    console.log('My custom global hook ran. Feathers is awesome!');
+  };
+};
+'use strict';
+
+const app = require('./app');
+const host = process.env.CHAT_HOST || app.get('host');
+const port = process.env.CHAT_PORT || app.get('port');
+const server = app.listen(port);
+
+server.on('listening', () =>
+  console.log(`Listening on ${app.get('host')}:${port}`)
+);
+'use strict';
+
+const signup = require('./signup');
+
+const handler = require('feathers-errors/handler');
+const notFound = require('./not-found-handler');
+const logger = require('./logger');
+
+module.exports = function() {
+  // Add your custom middleware here. Remember, that
+  // just like Express the order matters, so error
+  // handling middleware should go last.
+  const app = this;
+  app.post('/signup', signup(app));
+  app.use(notFound());
+  app.use(logger(app));
+  app.use(handler());
+};
+'use strict';
+
+const winston = require('winston');
+
+module.exports = function(app) {
+  // Add a logger to our app object for convenience
+  app.logger = winston;
+
+  return function(error, req, res, next) {
+    if (error) {
+      const message = `${error.code ? `(${error.code}) ` : '' }Route: ${req.url} - ${error.message}`;
+
+      if (error.code === 404) {
+        winston.info(message);
+      }
+      else {
+        winston.error(message);
+        winston.info(error.stack);
+      }
+    }
+
+    next(error);
+  };
+};
+'use strict';
+
+const errors = require('feathers-errors');
+
+module.exports = function() {
+  return function(req, res, next) {
+    next(new errors.NotFound('Page not found'));
+  };
+};
+'use strict';
+
+function isValidEmail(email) {
+  const regex = /^[-a-z0-9~!$%^&*_=+}{\'?]+(\.[-a-z0-9~!$%^&*_=+}{\'?]+)*@([a-z0-9_][-a-z0-9_]*(\.[-a-z0-9_]+[a-z][a-z])|([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}))(:[0-9]{1,5})?$/i;
+  return regex.test(email);
+}
+
+module.exports = function(app) {
+  return function(req, res, next) {
+    const body = req.body;
+
+    if (!body ||
+        !body.email ||
+        !isValidEmail(body.email) ||
+        !body.password) {
+
+      // Just redirect on a bad request
+      console.error('Username [%s] is invalid', body.email);
+      res.redirect('/index.html');
+    } else {
+      console.info('Registering [%s]', body.email);
+      // Get the user service and `create` a new user
+      app.service('users').create({
+        email: body.email,
+        password: body.password
+      })
+      // Then redirect to the home page
+      .then((user) => {
+        res.redirect('/index.html');
+      })
+      // On errors, just call our error middleware
+      .catch(next);
+    }
+  };
+};
+'use strict';
+
+const authentication = require('feathers-authentication');
+
+module.exports = function() {
+  const app = this;
+
+  let config = app.get('auth');
+  app.configure(authentication(config));
+};
+'use strict';
+
+const message = require('./message');
+const user = require('./user');
+const authentication = require('./authentication');
+
+module.exports = function() {
+  const app = this;
+
+  app.configure(authentication);
+  app.configure(user);
+  app.configure(message);
+};
+
+'use strict';
+
+const hooks = require('feathers-hooks');
+const auth = require('feathers-authentication').hooks;
+
+const restrictToSender = require('./restrict-to-sender');
+const process = require('./process');
+const globalHooks = require('../../../hooks');
+
+exports.before = {
+  all: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated()
+  ],
+  find: [],
+  get: [],
+  create: [process()],
+  update: [hooks.remove('sentBy'), restrictToSender()],
+  patch: [hooks.remove('sentBy'), restrictToSender()],
+  remove: [restrictToSender()]
+};
+
+const options = {
+  service: 'users',
+  field: 'sentBy'
+};
+
+exports.after = {
+  all: [], // Populate the sender
+  find: [hooks.populate('sentBy', options)],
+  get: [hooks.populate('sentBy', options)],
+  create: [hooks.populate('sentBy', options)],
+  update: [],
+  patch: [],
+  remove: []
+};
+'use strict';
+
+// src/services/message/hooks/process.js
+//
+// Use this hook to manipulate incoming or outgoing data.
+// For more information on hooks see: http://docs.feathersjs.com/hooks/readme.html
+
+module.exports = function(options) {
+  return function(hook) {
+    // The authenticated user
+    const user = hook.params.user;
+    // The actual message text
+    const text = hook.data.text
+      // Messages can't be longer than 400 characters
+      .substring(0, 400)
+      // Do some basic HTML escaping
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // Override the original data
+    hook.data = {
+      text,
+      // Set the user id
+      sentBy: user._id,
+      // Add the current time via `getTime`
+      createdAt: new Date().getTime()
+    };
+  };
+};
+'use strict';
+
+// src/services/message/hooks/restrict-to-sender.js
+//
+// Use this hook to manipulate incoming or outgoing data.
+// For more information on hooks see: http://docs.feathersjs.com/hooks/readme.html
+
+const errors = require('feathers-errors');
+
+module.exports = function(options) {
+  return function(hook) {
+    const messageService = hook.app.service('messages');
+
+    // First get the message that the user wants to access
+    return messageService.get(hook.id, hook.params).then(message => {
+      // Throw a not authenticated error if the message and user id don't match
+      if (!message.sentBy._id.equals(hook.params.user._id)) {
+        throw new errors.NotAuthenticated('Access not allowed');
+      }
+
+      // Otherwise just return the hook
+      return hook;
+    });
+  };
+};
+
+'use strict';
+
+const path = require('path');
+const NeDB = require('nedb');
+const service = require('feathers-nedb');
+const hooks = require('./hooks');
+
+module.exports = function(){
+  const app = this;
+
+  const db = new NeDB({
+    filename: path.join(app.get('nedb'), 'messages.db'),
+    autoload: true
+  });
+
+  let options = {
+    Model: db,
+    paginate: {
+      default: 5,
+      max: 25
+    }
+  };
+
+  // Initialize our service with any options it requires
+  app.use('/messages', service(options));
+
+  // Get our initialize service to that we can bind hooks
+  const messageService = app.service('/messages');
+
+  // Set up our before hooks
+  messageService.before(hooks.before);
+
+  // Set up our after hooks
+  messageService.after(hooks.after);
+};
+'use strict';
+
+// src/services/user/hooks/gravatar.js
+//
+// Use this hook to manipulate incoming or outgoing data.
+// For more information on hooks see: http://docs.feathersjs.com/hooks/readme.html
+
+// We need this to create the MD5 hash
+const crypto = require('crypto');
+
+// The Gravatar image service
+const gravatarUrl = 'https://s.gravatar.com/avatar';
+// The size query. Our chat needs 60px images
+const query = `s=60`;
+
+// Returns a full URL to a Gravatar image for a given email address
+const gravatarImage = email => {
+  // Gravatar uses MD5 hashes from an email address to get the image
+  const hash = crypto.createHash('md5').update(email).digest('hex');
+
+  return `${gravatarUrl}/${hash}?${query}`;
+};
+
+module.exports = function() {
+  return function(hook) {
+    hook.data.avatar = gravatarImage(hook.data.email);
+  };
+};
+'use strict';
+
+const gravatar = require('./gravatar');
+
+const globalHooks = require('../../../hooks');
+const hooks = require('feathers-hooks');
+const auth = require('feathers-authentication').hooks;
+
+exports.before = {
+  all: [],
+  find: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated()
+  ],
+  get: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated()
+  ],
+  create: [
+    auth.hashPassword(),
+    gravatar()
+  ],
+  update: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated(),
+    auth.restrictToOwner({ ownerField: '_id' })
+  ],
+  patch: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated(),
+    auth.restrictToOwner({ ownerField: '_id' })
+  ],
+  remove: [
+    auth.verifyToken(),
+    auth.populateUser(),
+    auth.restrictToAuthenticated(),
+    auth.restrictToOwner({ ownerField: '_id' })
+  ]
+};
+
+exports.after = {
+  all: [hooks.remove('password')],
+  find: [],
+  get: [],
+  create: [],
+  update: [],
+  patch: [],
+  remove: []
+};
+'use strict';
+
+const path = require('path');
+const NeDB = require('nedb');
+const service = require('feathers-nedb');
+const hooks = require('./hooks');
+
+module.exports = function(){
+  const app = this;
+
+  const db = new NeDB({
+    filename: path.join(app.get('nedb'), 'users.db'),
+    autoload: true
+  });
+
+  let options = {
+    Model: db,
+    paginate: {
+      default: 5,
+      max: 25
+    }
+  };
+
+  // Initialize our service with any options it requires
+  app.use('/users', service(options));
+
+  // Get our initialize service to that we can bind hooks
+  const userService = app.service('/users');
+
+  // Set up our before hooks
+  userService.before(hooks.before);
+
+  // Set up our after hooks
+  userService.after(hooks.after);
+};
